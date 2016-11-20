@@ -1,0 +1,102 @@
+#!/bin/bash
+
+# ssh-copy-id functionality for Mikrotik RouterOS
+
+# Default arguments
+SCRIPTNAME=$0
+IDENTITY=""
+PORT=22
+USER=$(whoami)
+OPTIONS=()
+
+# Parse arguments
+while [ "$#" -gt "1" ]; do
+	
+	case $1 in
+		-h|-\?)
+			echo "Usage: $SCRIPTNAME [-i [identity_file]] [-p port] [-o ssh_option] [user@]hostname"
+			exit 0
+			;;
+		-f) # ignore
+			shift
+			;;
+		-n) # exit for safety
+			(>&2 echo "Error: -n is not supported yet")
+			exit 1
+			;;
+		-i) 
+			if [ "$#" -gt "2" ] && [[ $2 != -* ]]; then
+				IDENTITY="$2"
+				shift
+			fi
+			shift
+			;;
+		-p)
+			PORT="$2"
+			shift
+			shift
+			;;
+		-o)
+			OPTIONS+=('-o')
+			OPTIONS+=("$2")
+			shift
+			shift
+			;;
+		*)
+			(>&2 echo "Error: unknown parameter")
+			exit 1
+			;;
+	esac
+done
+
+if [ "$#" -lt "1" ]; then
+	(>&2 echo "Error: missing hostname")
+	exit 1
+fi
+
+# Extract username from hostname
+IFS='@'; TARGET=($1); unset IFS;
+if [ "${#TARGET[@]}" -gt "1" ]; then
+	USER=${TARGET[0]}
+fi
+TARGET=$1
+
+if [ "$IDENTITY" = "" ]; then
+	IDENTITY=$(ssh-add -L)
+else
+	if [[ $IDENTITY != *.pub ]]; then
+		IDENTITY="${IDENTITY}.pub"
+	fi
+	if [ ! -f "$IDENTITY" ]; then
+		(>&2 echo "Error: identity file ($IDENTITY) missing!")
+		exit 1
+	fi
+	IDENTITY=$(cat "$IDENTITY")
+fi
+
+#echo "------------------------"
+#echo "DEBUG INFO:"
+#echo "Identity: $IDENTITY"
+#echo "Port: $PORT"
+#echo "Options: ${OPTIONS[@]}"
+#echo "User: $USER"
+#echo "Target: $TARGET"
+#echo "------------------------"
+
+# Create a big messy mikrotik command
+COMMAND=""
+while read pubkey
+do
+	COMMAND="$COMMAND /file print file=\"ssh_copy_id.pub\"; :delay 3;"
+	COMMAND="$COMMAND /file set [find name=\"ssh_copy_id.pub.txt\"] contents=\"$pubkey\"; :delay 3;"
+	COMMAND="$COMMAND /user ssh-keys import user=\"$USER\" public-key-file=\"ssh_copy_id.pub.txt\";"
+done <<< "$IDENTITY"
+
+# Warning!
+echo "WARNING: THIS MIGHT LOCK YOU OUT!"
+echo "RouterOS will NOT accept password login after pubkey install, unless you explicitly set that."
+echo "See /ip ssh set always-allow-password-login=yes"
+echo 
+
+# Shoot :-)
+ssh -p $PORT "${OPTIONS[@]}" "$TARGET" "$COMMAND"
