@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# Shortcut for SSH connect via socks proxy
+
+if [ "$#" -lt "2" ]; then
+	echo "Usage: $0 proxy_server:port ssh_parameters"
+else
+	ssh -o ProxyCommand="nc -x $1 %h %p" ${@:2}
+fi
